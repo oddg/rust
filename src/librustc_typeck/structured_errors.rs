@@ -147,3 +147,41 @@ https://doc.rust-lang.org/reference/expressions/operator-expr.html#type-cast-exp
         err
     }
 }
+
+pub struct CEnumImplDropCastError<'tcx> {
+    sess: &'tcx Session,
+    span: Span,
+    expr_ty: Ty<'tcx>,
+    cast_ty: String,
+}
+impl<'tcx> CEnumImplDropCastError<'tcx> {
+    pub fn new(
+        sess: &'tcx Session,
+        span: Span,
+        expr_ty: Ty<'tcx>,
+        cast_ty: String,
+    ) -> CEnumImplDropCastError<'tcx> {
+        CEnumImplDropCastError { sess, span, expr_ty, cast_ty }
+    }
+}
+
+impl<'tcx> StructuredDiagnostic<'tcx> for CEnumImplDropCastError<'tcx> {
+    fn session(&self) -> &Session {
+        self.sess
+    }
+
+    fn code(&self) -> DiagnosticId {
+        rustc_errors::error_code!(E0649)
+    }
+
+    fn common(&self) -> DiagnosticBuilder<'tcx> {
+        self.sess.struct_span_fatal_with_code(
+            self.span,
+            &format!(
+                "cannot cast `enum` implementing `Drop` `{}` to integer `{}`",
+                self.expr_ty, self.cast_ty
+            ),
+            self.code(),
+        )
+    }
+}

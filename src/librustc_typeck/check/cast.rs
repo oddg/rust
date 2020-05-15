@@ -162,6 +162,7 @@ enum CastError {
     NonScalar,
     UnknownExprPtrKind,
     UnknownCastPtrKind,
+    CEnumImplDropCast,
 }
 
 impl From<ErrorReported> for CastError {
@@ -389,6 +390,17 @@ impl<'a, 'tcx> CastCheck<'tcx> {
                 }
                 err.emit();
             }
+            CastError::CEnumImplDropCast => {
+                use crate::structured_errors::{CEnumImplDropCastError, StructuredDiagnostic};
+                CEnumImplDropCastError::new(
+                    &fcx.tcx.sess,
+                    self.span,
+                    self.expr_ty,
+                    fcx.ty_to_string(self.cast_ty),
+                )
+                .diagnostic()
+                .emit();
+            }
         }
     }
 
@@ -609,7 +621,7 @@ impl<'a, 'tcx> CastCheck<'tcx> {
             (FnPtr, Ptr(mt)) => self.check_fptr_ptr_cast(fcx, mt),
 
             // prim -> prim
-            (Int(CEnum), Int(_)) => Ok(CastKind::EnumCast),
+            (Int(CEnum), Int(_)) => self.check_cenum_int_cast(fcx),
             (Int(Char) | Int(Bool), Int(_)) => Ok(CastKind::PrimIntCast),
 
             (Int(_) | Float, Int(_) | Float) => Ok(CastKind::NumericCast),
@@ -706,11 +718,13 @@ impl<'a, 'tcx> CastCheck<'tcx> {
                 // Coerce to a raw pointer so that we generate AddressOf in MIR.
                 let array_ptr_type = fcx.tcx.mk_ptr(m_expr);
                 fcx.try_coerce(self.expr, self.expr_ty, array_ptr_type, AllowTwoPhase::No)
-                    .unwrap_or_else(|_| bug!(
+                    .unwrap_or_else(|_| {
+                        bug!(
                         "could not cast from reference to array to pointer to array ({:?} to {:?})",
                         self.expr_ty,
                         array_ptr_type,
-                    ));
+                    )
+                    });
 
                 // this will report a type mismatch if needed
                 fcx.demand_eqtype(self.span, ety, m_cast.ty);
@@ -738,6 +752,21 @@ impl<'a, 'tcx> CastCheck<'tcx> {
         match fcx.try_coerce(self.expr, self.expr_ty, self.cast_ty, AllowTwoPhase::No) {
             Ok(_) => Ok(()),
             Err(err) => Err(err),
+        }
+    }
+
+    fn check_cenum_int_cast(&self, fcx: &FnCtxt<'a, 'tcx>) -> Result<CastKind, CastError> {
+        // CEnum implementing Drop cannot be cast
+        match self.expr_ty.kind {
+            ty::Adt(d, _) => {
+                if d.has_dtor(fcx.tcx) {
+                    Err(CastError::CEnumImplDropCast)
+                } else {
+                    Ok(CastKind::EnumCast)
+                }
+            }
+            // The function is called only when `self.expr_ty` is a CEnum
+            _ => unreachable!(),
         }
     }
 }
