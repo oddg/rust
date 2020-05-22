@@ -175,7 +175,7 @@ impl<'tcx> StructuredDiagnostic<'tcx> for CEnumImplDropCastError<'tcx> {
     }
 
     fn common(&self) -> DiagnosticBuilder<'tcx> {
-        self.sess.struct_span_fatal_with_code(
+        self.sess.struct_span_err_with_code(
             self.span,
             &format!(
                 "cannot cast `enum` implementing `Drop` `{}` to integer `{}`",
